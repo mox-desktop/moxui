@@ -1,14 +1,14 @@
-use moxui::texture_renderer::{
-    Buffer, TextureArea, TextureBounds, TextureRenderer, viewport::Viewport,
+use moxui::{
+    texture_renderer::{Buffer, TextureArea, TextureBounds, TextureRenderer},
+    viewport::{Resolution, Viewport},
 };
 use std::sync::Arc;
 use winit::{
     application::ApplicationHandler,
-    dpi::{PhysicalPosition, PhysicalSize},
+    dpi::PhysicalSize,
     error::EventLoopError,
-    event::{MouseScrollDelta, WindowEvent},
-    event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopBuilder},
-    keyboard::Key,
+    event::WindowEvent,
+    event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     platform::wayland::EventLoopBuilderExtWayland,
     window::{Window, WindowId},
 };
@@ -71,10 +71,6 @@ impl<'window> ApplicationHandler for App<'window> {
                     return;
                 }
 
-                let Key::Named(key) = event.logical_key else {
-                    return;
-                };
-
                 let Some(mut wgpu_ctx) = self.wgpu_ctx.take() else {
                     return;
                 };
@@ -82,28 +78,14 @@ impl<'window> ApplicationHandler for App<'window> {
                 wgpu_ctx.draw();
                 self.wgpu_ctx = Some(wgpu_ctx);
             }
-            WindowEvent::MouseWheel {
-                device_id: _,
-                delta,
-                phase: _,
-            } => {
-                let Some(ref mut wgpu_ctx) = self.wgpu_ctx else {
-                    return;
-                };
-
-                if let MouseScrollDelta::PixelDelta(PhysicalPosition { x, y }) = delta {
-                    //let tree = &mut wgpu_ctx.trees[wgpu_ctx.index];
-                    //tree.scroll(&wgpu_ctx.device, x as f32, y as f32);
-                    wgpu_ctx.draw();
-                }
-            }
             WindowEvent::Resized(PhysicalSize { width, height }) => {
                 let Some(ref mut wgpu_ctx) = self.wgpu_ctx else {
                     return;
                 };
 
-                //let tree = &mut wgpu_ctx.trees[wgpu_ctx.index];
-                //tree.set_viewport(&wgpu_ctx.device, width as f32, height as f32);
+                wgpu_ctx
+                    .viewport
+                    .update(&wgpu_ctx.queue, Resolution { width, height });
                 wgpu_ctx.draw();
             }
             _ => (),
@@ -113,12 +95,13 @@ impl<'window> ApplicationHandler for App<'window> {
 
 #[allow(dead_code)]
 pub struct WgpuCtx<'window> {
-    pub index: usize,
-    pub surface: wgpu::Surface<'window>,
-    pub surface_config: wgpu::SurfaceConfiguration,
+    index: usize,
+    surface: wgpu::Surface<'window>,
+    surface_config: wgpu::SurfaceConfiguration,
     adapter: wgpu::Adapter,
-    pub device: wgpu::Device,
-    pub queue: wgpu::Queue,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    viewport: Viewport,
 }
 
 impl<'window> WgpuCtx<'window> {
@@ -145,6 +128,7 @@ impl<'window> WgpuCtx<'window> {
             surface,
             surface_config,
             adapter,
+            viewport: Viewport::new(&device),
             device,
             queue,
         }
@@ -161,30 +145,16 @@ impl<'window> WgpuCtx<'window> {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("Render pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &texture_view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
 
         let width = 120;
         let height = 120;
         let mut bytes = vec![0u8; width * height * 4];
 
         for i in 0..(width * height) {
-            bytes[i * 4 + 3] = 0;
+            bytes[i * 4 + 3] = 255;
         }
 
-        let mut buffer = Buffer::new();
+        let mut buffer = Buffer::new(width as f32, height as f32);
         buffer.set_bytes(&bytes);
 
         let texture = TextureArea {
@@ -194,8 +164,8 @@ impl<'window> WgpuCtx<'window> {
             bounds: TextureBounds {
                 left: 0,
                 top: 0,
-                right: 16,
-                bottom: 16,
+                right: width as u32,
+                bottom: height as u32,
             },
             buffer,
             radius: [0., 0., 0., 0.],
@@ -203,17 +173,14 @@ impl<'window> WgpuCtx<'window> {
             skew: [0., 0.],
         };
 
-        drop(rpass);
-
-        let viewport = Viewport::new(&self.device);
         let mut texture_renderer = TextureRenderer::new(
             width as u32,
             height as u32,
             &self.device,
             self.surface_config.format,
         );
-        texture_renderer.prepare(&self.device, &self.queue, &viewport, &[texture]);
-        texture_renderer.render(&texture_view, &mut encoder, &viewport);
+        texture_renderer.prepare(&self.device, &self.queue, &self.viewport, &[texture]);
+        texture_renderer.render(&texture_view, &mut encoder, &self.viewport);
 
         self.queue.submit(Some(encoder.finish()));
         surface_texture.present();

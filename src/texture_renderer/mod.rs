@@ -1,12 +1,13 @@
 mod blur;
-pub mod viewport;
 
-use crate::buffers::{self, DataDescription, GpuBuffer};
+use crate::{
+    buffers::{self, DataDescription, GpuBuffer},
+    viewport,
+};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct TextureInstance {
-    pub scale: f32,
     pub opacity: f32,
     pub rotation: f32,
     pub brightness: f32,
@@ -16,10 +17,11 @@ pub struct TextureInstance {
     pub sepia: f32,
     pub invert: f32,
     pub grayscale: f32,
+    pub scale: [f32; 2],
     pub skew: [f32; 2],
     pub rect: [f32; 4],
     pub radius: [f32; 4],
-    pub container_rect: [f32; 4],
+    pub texture_bounds: [f32; 4],
     pub shadow: [f32; 3],
 }
 
@@ -36,7 +38,7 @@ impl DataDescription for TextureInstance {
         7  => Float32,
         8  => Float32,
         9  => Float32,
-        10 => Float32,
+        10 => Float32x2,
         11 => Float32x2,
         12 => Float32x4,
         13 => Float32x4,
@@ -103,16 +105,21 @@ impl Default for Transforms {
 
 #[derive(Default)]
 pub struct Buffer<'a> {
-    width: Option<f32>,
-    height: Option<f32>,
+    width: f32,
+    height: f32,
     skew: [f32; 2],
     bytes: &'a [u8],
     filters: Filters,
+    scale: [f32; 2],
 }
 
 impl<'a> Buffer<'a> {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(width: f32, height: f32) -> Self {
+        Self {
+            width,
+            height,
+            ..Default::default()
+        }
     }
 
     pub fn set_bytes(&mut self, bytes: &'a [u8]) {
@@ -120,8 +127,13 @@ impl<'a> Buffer<'a> {
     }
 
     pub fn set_size(&mut self, width_opt: Option<f32>, height_opt: Option<f32>) {
-        self.width = width_opt;
-        self.height = height_opt;
+        if let Some(width) = width_opt {
+            self.width = width;
+        }
+
+        if let Some(height) = height_opt {
+            self.height = height;
+        }
     }
 
     pub fn set_skew(&mut self, skew_x: f32, skew_y: f32) {
@@ -167,6 +179,10 @@ impl<'a> Buffer<'a> {
     pub fn set_blur_color(&mut self, r: f32, g: f32, b: f32, a: f32) {
         self.filters.blur_color = [r, g, b, a];
     }
+
+    pub fn set_scale(&mut self, scale_x: f32, scale_y: f32) {
+        self.scale = [scale_x, scale_y];
+    }
 }
 
 pub struct Pipelines {
@@ -202,6 +218,16 @@ pub struct TextureBounds {
     pub top: u32,
     pub right: u32,
     pub bottom: u32,
+}
+
+impl TextureBounds {
+    pub fn width(&self) -> u32 {
+        self.right - self.left
+    }
+
+    pub fn height(&self) -> u32 {
+        self.bottom - self.top
+    }
 }
 
 impl TextureRenderer {
@@ -348,7 +374,7 @@ impl TextureRenderer {
                 },
             ],
         );
-        let index_buffer = buffers::IndexBuffer::new(device, &[0, 1, 3, 3, 2, 0]);
+        let index_buffer = buffers::IndexBuffer::new(device, &[0, 1, 2, 3]);
         let instance_buffer = buffers::instance::InstanceBuffer::new(device, &[]);
 
         Self {
@@ -374,7 +400,7 @@ impl TextureRenderer {
             .iter()
             .enumerate()
             .map(|(i, texture)| {
-                let bytes_per_row = (4 * viewport.resolution().width).div_ceil(256) * 256;
+                let bytes_per_row = 4 * (texture.buffer.width as u32).min(texture.bounds.width());
 
                 queue.write_texture(
                     wgpu::TexelCopyTextureInfo {
@@ -394,32 +420,23 @@ impl TextureRenderer {
                         rows_per_image: None,
                     },
                     wgpu::Extent3d {
-                        width: viewport.resolution().width,
-                        height: viewport.resolution().height,
+                        width: (texture.buffer.width as u32).min(texture.bounds.width()),
+                        height: (texture.buffer.height as u32).min(texture.bounds.height()),
                         depth_or_array_layers: 1,
                     },
                 );
 
-                let width = texture
-                    .buffer
-                    .width
-                    .unwrap_or(viewport.resolution().width as f32);
-                let height = texture
-                    .buffer
-                    .height
-                    .unwrap_or(viewport.resolution().height as f32);
-
                 TextureInstance {
-                    scale: texture.scale,
+                    scale: texture.buffer.scale,
                     rect: [
                         texture.left,
-                        viewport.resolution().height as f32 - texture.top - height,
-                        width,
-                        height,
+                        viewport.resolution().height as f32 - texture.top - texture.buffer.height,
+                        texture.buffer.width,
+                        texture.buffer.height,
                     ],
-                    container_rect: [
+                    texture_bounds: [
                         texture.bounds.left as f32,
-                        -(viewport.resolution().height as f32 - texture.bounds.top as f32 - height),
+                        texture.bounds.top as f32,
                         texture.bounds.right as f32,
                         texture.bounds.bottom as f32,
                     ],
@@ -433,7 +450,7 @@ impl TextureRenderer {
                     sepia: texture.buffer.filters.sepia,
                     invert: texture.buffer.filters.invert,
                     grayscale: texture.buffer.filters.grayscale,
-                    shadow: [10., 10., 10.],
+                    shadow: [0., 0., 0.],
                     skew: texture.skew,
                 }
             })

@@ -300,14 +300,8 @@ impl BlurRenderer {
         let instances = textures
             .iter()
             .map(|texture| {
-                let width = texture
-                    .buffer
-                    .width
-                    .unwrap_or(viewport.resolution().width as f32);
-                let height = texture
-                    .buffer
-                    .height
-                    .unwrap_or(viewport.resolution().height as f32);
+                let width = texture.buffer.width;
+                let height = texture.buffer.height;
 
                 BlurInstance {
                     blur_sigma: texture.buffer.filters.blur,
