@@ -204,6 +204,16 @@ pub struct TextureBounds {
     pub bottom: u32,
 }
 
+impl TextureBounds {
+    pub fn width(&self) -> u32 {
+        self.right - self.left
+    }
+
+    pub fn height(&self) -> u32 {
+        self.bottom - self.top
+    }
+}
+
 impl TextureRenderer {
     pub fn new(
         width: u32,
@@ -374,7 +384,7 @@ impl TextureRenderer {
             .iter()
             .enumerate()
             .map(|(i, texture)| {
-                let bytes_per_row = (4 * viewport.resolution().width).div_ceil(256) * 256;
+                let bytes_per_row = 4 * texture.bounds.width();
 
                 queue.write_texture(
                     wgpu::TexelCopyTextureInfo {
@@ -394,8 +404,8 @@ impl TextureRenderer {
                         rows_per_image: None,
                     },
                     wgpu::Extent3d {
-                        width: viewport.resolution().width,
-                        height: viewport.resolution().height,
+                        width: texture.bounds.width(),
+                        height: texture.bounds.height(),
                         depth_or_array_layers: 1,
                     },
                 );
@@ -403,11 +413,11 @@ impl TextureRenderer {
                 let width = texture
                     .buffer
                     .width
-                    .unwrap_or(viewport.resolution().width as f32);
+                    .unwrap_or(texture.bounds.width() as f32);
                 let height = texture
                     .buffer
                     .height
-                    .unwrap_or(viewport.resolution().height as f32);
+                    .unwrap_or(texture.bounds.height() as f32);
 
                 TextureInstance {
                     scale: texture.scale,
@@ -433,7 +443,7 @@ impl TextureRenderer {
                     sepia: texture.buffer.filters.sepia,
                     invert: texture.buffer.filters.invert,
                     grayscale: texture.buffer.filters.grayscale,
-                    shadow: [10., 10., 10.],
+                    shadow: [0., 0., 0.],
                     skew: texture.skew,
                 }
             })
