@@ -182,6 +182,7 @@ pub struct TextureRenderer {
     vertex_buffer: buffers::VertexBuffer,
     index_buffer: buffers::IndexBuffer,
     instance_buffer: buffers::instance::InstanceBuffer<TextureInstance>,
+    prepared_instances: usize,
 }
 
 pub struct TextureArea<'a> {
@@ -358,6 +359,7 @@ impl TextureRenderer {
             index_buffer,
             vertex_buffer,
             pipeline: standard_pipeline,
+            prepared_instances: 0,
         }
     }
 
@@ -437,6 +439,8 @@ impl TextureRenderer {
             })
             .collect::<Vec<_>>();
 
+        self.prepared_instances = instances.len();
+
         if instances.is_empty() {
             return;
         }
@@ -459,6 +463,10 @@ impl TextureRenderer {
         encoder: &mut wgpu::CommandEncoder,
         viewport: &viewport::Viewport,
     ) {
+        if self.prepared_instances == 0 {
+            return;
+        }
+
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("standard_render_pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {

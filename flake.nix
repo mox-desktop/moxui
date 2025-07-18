@@ -37,6 +37,7 @@
                     "rustfmt"
                   ];
                 })
+
               ]
               ++ builtins.attrValues {
                 inherit (pkgs)
@@ -46,8 +47,17 @@
                   vulkan-headers
                   vulkan-validation-layers
                   wgsl-analyzer
-                  wayland
                   pkg-config
+                  libxkbcommon
+                  libGL
+
+                  wayland
+                  ;
+                inherit (pkgs.xorg)
+                  libXcursor
+                  libXrandr
+                  libXi
+                  libX11
                   ;
               };
           in
