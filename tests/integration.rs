@@ -180,7 +180,7 @@ impl<'window> WgpuCtx<'window> {
             self.surface_config.format,
         );
         texture_renderer.prepare(&self.device, &self.queue, &self.viewport, &[texture]);
-        texture_renderer.render(&texture_view, &mut encoder, &self.viewport);
+        texture_renderer.render(&texture_view, &mut encoder);
 
         self.queue.submit(Some(encoder.finish()));
         surface_texture.present();

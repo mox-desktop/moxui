@@ -183,6 +183,7 @@ pub struct TextureRenderer {
     index_buffer: buffers::IndexBuffer,
     instance_buffer: buffers::instance::InstanceBuffer<TextureInstance>,
     prepared_instances: usize,
+    viewport_bind_group: Option<wgpu::BindGroup>,
 }
 
 pub struct TextureArea<'a> {
@@ -370,6 +371,7 @@ impl TextureRenderer {
             vertex_buffer,
             pipeline: standard_pipeline,
             prepared_instances: 0,
+            viewport_bind_group: None,
         }
     }
 
@@ -449,6 +451,7 @@ impl TextureRenderer {
             })
             .collect::<Vec<_>>();
 
+        self.viewport_bind_group = Some(viewport.bind_group.clone());
         self.prepared_instances = instances.len();
 
         if instances.is_empty() {
@@ -467,15 +470,14 @@ impl TextureRenderer {
         self.blur.prepare(device, queue, viewport, textures);
     }
 
-    pub fn render(
-        &self,
-        texture_view: &wgpu::TextureView,
-        encoder: &mut wgpu::CommandEncoder,
-        viewport: &viewport::Viewport,
-    ) {
+    pub fn render(&self, texture_view: &wgpu::TextureView, encoder: &mut wgpu::CommandEncoder) {
         if self.prepared_instances == 0 {
             return;
         }
+
+        let Some(viewport) = self.viewport_bind_group.as_ref().take() else {
+            return;
+        };
 
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("standard_render_pass"),
@@ -492,7 +494,7 @@ impl TextureRenderer {
 
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, &self.texture_bind_group, &[]);
-        render_pass.set_bind_group(1, &viewport.bind_group, &[]);
+        render_pass.set_bind_group(1, viewport, &[]);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
@@ -507,7 +509,7 @@ impl TextureRenderer {
         self.blur.render(
             texture_view,
             encoder,
-            &viewport.bind_group,
+            viewport,
             &self.vertex_buffer,
             &self.index_buffer,
         );
