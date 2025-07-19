@@ -1,6 +1,6 @@
 use crate::{
     buffers::{self, DataDescription, GpuBuffer, instance},
-    texture_renderer::viewport,
+    texture_renderer::viewport::{self, Viewport},
 };
 
 #[repr(C)]
@@ -46,7 +46,7 @@ impl ShapeRenderer {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[],
+                bind_group_layouts: &[&Viewport::bind_group_layout(device)],
                 push_constant_ranges: &[],
             });
 
@@ -149,13 +149,13 @@ impl ShapeRenderer {
         self.instance_buffer.write(queue, instances);
     }
 
-    pub fn render(&self, render_pass: &mut wgpu::RenderPass<'_>) {
-        let Some(viewport_bind_group) = self.viewport_bind_group.as_ref().take() else {
+    pub fn render(&mut self, render_pass: &mut wgpu::RenderPass<'_>) {
+        let Some(viewport_bind_group) = self.viewport_bind_group.take() else {
             return;
         };
 
         render_pass.set_pipeline(&self.render_pipeline);
-        render_pass.set_bind_group(0, viewport_bind_group, &[]);
+        render_pass.set_bind_group(0, &viewport_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);

@@ -470,12 +470,12 @@ impl TextureRenderer {
         self.blur.prepare(device, queue, viewport, textures);
     }
 
-    pub fn render(&self, texture_view: &wgpu::TextureView, encoder: &mut wgpu::CommandEncoder) {
+    pub fn render(&mut self, texture_view: &wgpu::TextureView, encoder: &mut wgpu::CommandEncoder) {
         if self.prepared_instances == 0 {
             return;
         }
 
-        let Some(viewport) = self.viewport_bind_group.as_ref().take() else {
+        let Some(viewport) = self.viewport_bind_group.take() else {
             return;
         };
 
@@ -494,7 +494,7 @@ impl TextureRenderer {
 
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, &self.texture_bind_group, &[]);
-        render_pass.set_bind_group(1, viewport, &[]);
+        render_pass.set_bind_group(1, &viewport, &[]);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
@@ -509,9 +509,11 @@ impl TextureRenderer {
         self.blur.render(
             texture_view,
             encoder,
-            viewport,
+            &viewport,
             &self.vertex_buffer,
             &self.index_buffer,
         );
+
+        self.prepared_instances = 0;
     }
 }

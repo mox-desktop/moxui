@@ -1,8 +1,9 @@
-struct ProjectionUniform {
-    projection: mat4x4<f32>,
+struct Params {
+    screen_resolution: vec2<u32>,
+    _pad: vec2<u32>,
 };
 @group(0) @binding(0)
-var<uniform> projection: ProjectionUniform;
+var<uniform> params: Params;
 
 struct VertexInput {
     @location(0) position: vec2<f32>,
@@ -40,7 +41,7 @@ fn vs_main(
     var out: VertexOutput;
 
     let position = model.position * (instance.rect_size + vec2<f32>(instance.border_size[0], instance.border_size[2]) + vec2<f32>(instance.border_size[1], instance.border_size[3])) * instance.scale + instance.rect_pos * instance.scale;
-    out.clip_position = projection.projection * vec4<f32>(position, instance.depth, 1.0);
+    out.clip_position = vec4<f32>(vec2<f32>(params.screen_resolution) * position, instance.depth, 1.0);
     out.uv = position;
     out.rect_pos = (instance.rect_pos + vec2<f32>(instance.border_size[0], instance.border_size[2])) * instance.scale;
     out.rect_size = instance.rect_size * instance.scale;
