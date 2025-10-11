@@ -4,8 +4,19 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-wgpu = { version = "27.0.1", default-features = false, features = ["wgsl", "vulkan", "gles"] }
+bytemuck = "1.24.0"
+wgpu = { version = "27.0.1", default-features = false, features = [
+  "wgsl",
+  "vulkan",
+  "gles",
+  "strict_asserts",
+] }
 
 [dev-dependencies]
 pollster = "0.4.0"
 winit = "0.30.5"
+
+[features]
+default = ["texture_renderer", "shape_renderer"]
+texture_renderer = []
+shape_renderer = []
