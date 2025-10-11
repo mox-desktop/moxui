@@ -1,83 +1,37 @@
 {
-  inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    rust-overlay = {
-      url = "github:oxalica/rust-overlay";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-  };
+  inputs.tooling.url = "github:mox-desktop/tooling";
+
   outputs =
-    { nixpkgs, rust-overlay, ... }:
-    let
-      systems = [
-        "x86_64-linux"
-        "aarch64-linux"
-      ];
-      overlays = [ (import rust-overlay) ];
-      forAllSystems =
-        function:
-        nixpkgs.lib.genAttrs systems (
-          system:
-          let
-            pkgs = import nixpkgs { inherit system overlays; };
-          in
-          function pkgs
-        );
-    in
-    {
-      devShells = forAllSystems (pkgs: {
-        default =
-          let
-            inherit (pkgs) lib;
-            buildInputs =
-              [
-                (pkgs.rust-bin.stable.latest.default.override {
-                  extensions = [
-                    "rust-src"
-                    "rustfmt"
-                  ];
-                })
-
-              ]
-              ++ builtins.attrValues {
-                inherit (pkgs)
-                  rust-analyzer-unwrapped
-                  nixd
-                  vulkan-loader
-                  vulkan-headers
-                  vulkan-validation-layers
-                  wgsl-analyzer
-                  pkg-config
-                  libxkbcommon
-                  libGL
-
-                  wayland
-                  ;
-                inherit (pkgs.xorg)
-                  libXcursor
-                  libXrandr
-                  libXi
-                  libX11
-                  ;
-              };
-          in
-          pkgs.mkShell {
-            inherit buildInputs;
-            LD_LIBRARY_PATH = "${pkgs.lib.makeLibraryPath buildInputs}";
-          };
-      });
-
-      packages = forAllSystems (pkgs: {
-        default = pkgs.callPackage ./nix/package.nix {
-          rustPlatform =
-            let
-              rust-bin = pkgs.rust-bin.stable.latest.default;
-            in
-            pkgs.makeRustPlatform {
-              cargo = rust-bin;
-              rustc = rust-bin;
+    { tooling, ... }:
+    tooling.lib.mkMoxFlake {
+      devShells = tooling.lib.forAllSystems (pkgs: {
+        default = pkgs.mkShell (
+          pkgs.lib.fix (finalAttrs: {
+            buildInputs = builtins.attrValues {
+              inherit (pkgs)
+                rustToolchain
+                rust-analyzer-unwrapped
+                nixd
+                vulkan-loader
+                vulkan-headers
+                vulkan-validation-layers
+                wgsl-analyzer
+                pkg-config
+                libxkbcommon
+                libGL
+                wayland
+                ;
+              inherit (pkgs.xorg)
+                libXcursor
+                libXrandr
+                libXi
+                libX11
+                ;
             };
-        };
+            LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath finalAttrs.buildInputs;
+            RUST_SRC_PATH = "${pkgs.rustToolchain}/lib/rustlib/src/rust/library";
+          })
+        );
       });
     };
 }

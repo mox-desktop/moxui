@@ -345,6 +345,7 @@ impl BlurRenderer {
                     load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                     store: wgpu::StoreOp::Store,
                 },
+                depth_slice: None,
             })],
             ..Default::default()
         });
@@ -367,6 +368,7 @@ impl BlurRenderer {
                     load: wgpu::LoadOp::Load,
                     store: wgpu::StoreOp::Store,
                 },
+                depth_slice: None,
             })],
             ..Default::default()
         });

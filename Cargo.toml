@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-wgpu = { version = "25.0.0", default-features = false, features = ["wgsl", "vulkan", "gles"] }
+wgpu = { version = "27.0.1", default-features = false, features = ["wgsl", "vulkan", "gles"] }
 
 [dev-dependencies]
 pollster = "0.4.0"
