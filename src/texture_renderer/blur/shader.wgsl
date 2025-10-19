@@ -65,7 +65,7 @@ fn find_blur_metadata(blur_sigma: u32) -> u32 {
 
 @fragment
 fn fs_horizontal_blur(in: VertexOutput) -> @location(0) vec4<f32> {
-    let tex_coords = vec2<f32>(in.tex_coords.x, 1.0 - in.tex_coords.y);
+    let tex_coords = in.tex_coords;
 
     if in.blur_sigma == 0 {
         return textureSample(t_diffuse, s_diffuse, tex_coords);
@@ -87,7 +87,7 @@ fn fs_horizontal_blur(in: VertexOutput) -> @location(0) vec4<f32> {
 
 @fragment
 fn fs_vertical_blur(in: VertexOutput) -> @location(0) vec4<f32> {
-    let tex_coords = vec2<f32>(in.tex_coords.x, 1.0 - in.tex_coords.y);
+    let tex_coords = in.tex_coords;
 
     if in.blur_sigma == 0 {
         return textureSample(t_diffuse, s_diffuse, tex_coords);

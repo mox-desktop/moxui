@@ -75,6 +75,52 @@ pub struct BlurRenderer {
 }
 
 impl BlurRenderer {
+    pub fn resize(
+        &mut self,
+        device: &wgpu::Device,
+        width: u32,
+        height: u32,
+        format: wgpu::TextureFormat,
+    ) {
+        let intermediate_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("horizontal_blur_texture"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        self.intermediate_view = intermediate_texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2),
+            ..Default::default()
+        });
+
+        let output_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("vertical_blur_texture"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        self.output_view = output_texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2),
+            ..Default::default()
+        });
+    }
+
     pub fn new(
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
@@ -219,7 +265,6 @@ impl BlurRenderer {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        viewport: &super::viewport::Viewport,
         textures: &[super::TextureArea],
     ) {
         let (metadata, weights, offsets) = textures.iter().fold(
@@ -236,9 +281,24 @@ impl BlurRenderer {
             },
         );
 
-        let metadata = buffers::StorageBuffer::new(device, &metadata);
-        let weights = buffers::StorageBuffer::new(device, &weights);
-        let offsets = buffers::StorageBuffer::new(device, &offsets);
+        // Always create storage buffers, even if empty, to avoid shader validation errors
+        let metadata = if metadata.is_empty() {
+            buffers::StorageBuffer::new(device, &[[0u32, 0u32]])
+        } else {
+            buffers::StorageBuffer::new(device, &metadata)
+        };
+
+        let weights = if weights.is_empty() {
+            buffers::StorageBuffer::new(device, &[0.0f32])
+        } else {
+            buffers::StorageBuffer::new(device, &weights)
+        };
+
+        let offsets = if offsets.is_empty() {
+            buffers::StorageBuffer::new(device, &[0.0f32])
+        } else {
+            buffers::StorageBuffer::new(device, &offsets)
+        };
 
         self.bind_groups = Some([
             device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -306,31 +366,37 @@ impl BlurRenderer {
                 BlurInstance {
                     blur_sigma: texture.buffer.filters.blur,
                     blur_color: texture.buffer.filters.blur_color,
-                    rect: [
-                        texture.left,
-                        viewport.resolution().height as f32 - texture.top - height,
-                        width,
-                        height,
-                    ],
+                    rect: [texture.left, texture.top, width, height],
                 }
             })
             .collect::<Vec<_>>();
 
-        let instance_buffer_size = std::mem::size_of::<BlurInstance>() * instances.len();
+        // Always create at least one instance for passthrough rendering
+        let instances_to_use = if instances.is_empty() {
+            vec![BlurInstance {
+                blur_sigma: 0,
+                blur_color: [0.0, 0.0, 0.0, 0.0],
+                rect: [0.0, 0.0, 0.0, 0.0],
+            }]
+        } else {
+            instances
+        };
+
+        let instance_buffer_size = std::mem::size_of::<BlurInstance>() * instances_to_use.len();
 
         if self.instance_buffer.size() < instance_buffer_size as u32 {
             self.instance_buffer =
                 buffers::instance::InstanceBuffer::with_size(device, instance_buffer_size as u64);
         }
 
-        self.instance_buffer.write(queue, &instances);
+        self.instance_buffer.write(queue, &instances_to_use);
     }
 
     pub fn render(
         &self,
         output_texture_view: &wgpu::TextureView,
         encoder: &mut wgpu::CommandEncoder,
-        viewport_bind_group: &wgpu::BindGroup,
+        viewport: &crate::viewport::Viewport,
         vertex_buffer: &buffers::VertexBuffer,
         index_buffer: &buffers::IndexBuffer,
     ) {
@@ -352,12 +418,12 @@ impl BlurRenderer {
 
         horizontal_pass.set_pipeline(&self.pipelines.horizontal);
         horizontal_pass.set_bind_group(0, horizontal_bg, &[]);
-        horizontal_pass.set_bind_group(1, viewport_bind_group, &[]);
-        horizontal_pass.set_bind_group(2, self.storage_buffers.as_ref().unwrap().0.group(), &[]);
+        horizontal_pass.set_bind_group(1, &viewport.bind_group, &[]);
         horizontal_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
         horizontal_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
         horizontal_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        horizontal_pass.draw_indexed(0..index_buffer.size(), 0, 0..self.instance_buffer.size());
+        // Blur is a fullscreen effect, only draw once regardless of number of textures
+        horizontal_pass.draw_indexed(0..index_buffer.size(), 0, 0..1);
         drop(horizontal_pass);
 
         let mut vertical_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -375,12 +441,12 @@ impl BlurRenderer {
 
         vertical_pass.set_pipeline(&self.pipelines.vertical);
         vertical_pass.set_bind_group(0, vertical_bg, &[]);
-        vertical_pass.set_bind_group(1, viewport_bind_group, &[]);
-        vertical_pass.set_bind_group(2, self.storage_buffers.as_ref().unwrap().0.group(), &[]);
+        vertical_pass.set_bind_group(1, &viewport.bind_group, &[]);
         vertical_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
         vertical_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
         vertical_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        vertical_pass.draw_indexed(0..index_buffer.size(), 0, 0..self.instance_buffer.size());
+        // Blur is a fullscreen effect, only draw once regardless of number of textures
+        vertical_pass.draw_indexed(0..index_buffer.size(), 0, 0..1);
     }
 }
 
@@ -412,7 +478,7 @@ impl Pipelines {
                     entry_point: Some("fs_horizontal_blur"),
                     targets: &[Some(wgpu::ColorTargetState {
                         format,
-                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                         write_mask: wgpu::ColorWrites::default(),
                     })],
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
@@ -440,7 +506,7 @@ impl Pipelines {
                     entry_point: Some("fs_vertical_blur"),
                     targets: &[Some(wgpu::ColorTargetState {
                         format,
-                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                         write_mask: wgpu::ColorWrites::default(),
                     })],
                     compilation_options: wgpu::PipelineCompilationOptions::default(),

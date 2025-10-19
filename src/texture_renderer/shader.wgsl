@@ -12,21 +12,15 @@ struct VertexInput {
 };
 
 struct InstanceInput {
-    @location(1) opacity: f32,
-    @location(2) rotation: f32,
-    @location(3) brightness: f32,
-    @location(4) contrast: f32,
-    @location(5) saturation: f32,
-    @location(6) hue_rotate: f32,
-    @location(7) sepia: f32,
-    @location(8) invert: f32,
-    @location(9) grayscale: f32,
-    @location(10) scale: vec2<f32>,
-    @location(11) skew: vec2<f32>,
-    @location(12) rect: vec4<f32>,
-    @location(13) radius: vec4<f32>,
-    @location(14) texture_bounds: vec4<f32>,
-    @location(15) shadow: vec3<f32>,
+    @location(1) filters1: vec4<f32>,  // [opacity, brightness, contrast, saturation]
+    @location(2) filters2: vec4<f32>,  // [hue_rotate, sepia, invert, grayscale]
+    @location(3) rotation_depth: vec2<f32>,  // [rotation, depth]
+    @location(4) scale: vec2<f32>,
+    @location(5) skew: vec2<f32>,
+    @location(6) rect: vec4<f32>,
+    @location(7) radius: vec4<f32>,
+    @location(8) texture_bounds: vec4<f32>,
+    @location(9) shadow: vec3<f32>,
 };
 
 struct VertexOutput {
@@ -43,11 +37,10 @@ struct VertexOutput {
     @location(10) tex_coords: vec2<f32>,
     @location(11) size: vec2<f32>,
     @location(12) surface_position: vec2<f32>,
-    @location(13) screen_size: vec2<f32>,
-    @location(14) shadow_softness: f32,
-    @location(15) shadow_offset: vec2<f32>,
-    @location(16) radius: vec4<f32>,
-    @location(17) texture_bounds: vec4<f32>,
+    @location(13) shadow_softness: f32,
+    @location(14) shadow_offset: vec2<f32>,
+    @location(15) radius: vec4<f32>,
+    @location(16) texture_bounds: vec4<f32>,
     @builtin(position) clip_position: vec4<f32>,
 };
 
@@ -76,35 +69,48 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
 
+    // Unpack data
+    let opacity = instance.filters1.x;
+    let brightness = instance.filters1.y;
+    let contrast = instance.filters1.z;
+    let saturation = instance.filters1.w;
+    
+    let hue_rotate = instance.filters2.x;
+    let sepia = instance.filters2.y;
+    let invert = instance.filters2.z;
+    let grayscale = instance.filters2.w;
+    
+    let rotation = instance.rotation_depth.x;
+    let depth = instance.rotation_depth.y;
+
     let pos = instance.rect.xy * instance.scale;
     let size = instance.rect.zw * instance.scale;
 
     let local_pos = (model.position - vec2<f32>(0.5)) * size;
-    let rotated_pos = rotation_matrix(instance.rotation) * local_pos;
+    let rotated_pos = rotation_matrix(rotation) * local_pos;
     let position = rotated_pos + pos + size * 0.5;
 
-    out.clip_position = vec4<f32>(
-        2.0 * position.x / f32(params.screen_resolution.x) - 1.0,
-        1.0 - 2.0 * position.y / f32(params.screen_resolution.y),
-        0.0,
-        1.0,
-    );
+    // Convert from pixel coordinates to NDC (like shape_renderer)
+    let resolution = vec2<f32>(params.screen_resolution);
+    let ndc = (position / resolution) * 2.0 - vec2<f32>(1.0, 1.0);
+    let ndc_fixed = vec2<f32>(ndc.x, -ndc.y);
+
+    out.clip_position = vec4<f32>(ndc_fixed, depth, 1.0);
     out.tex_coords = model.position;
     out.layer = instance_idx;
     out.size = size;
     out.texture_bounds = instance.texture_bounds;
     out.surface_position = position;
-    out.opacity = instance.opacity;
-    out.rotation = instance.rotation;
+    out.opacity = opacity;
+    out.rotation = rotation;
     out.radius = instance.radius;
-    out.brightness = instance.brightness;
-    out.contrast = instance.contrast;
-    out.saturation = instance.saturation;
-    out.hue_rotate = instance.hue_rotate;
-    out.sepia = instance.sepia;
-    out.invert = instance.invert;
-    out.grayscale = instance.grayscale;
-    out.screen_size = vec2<f32>(params.screen_resolution);
+    out.brightness = brightness;
+    out.contrast = contrast;
+    out.saturation = saturation;
+    out.hue_rotate = hue_rotate;
+    out.sepia = sepia;
+    out.invert = invert;
+    out.grayscale = grayscale;
     out.shadow_offset = instance.shadow.xy;
     out.shadow_softness = instance.shadow.z;
 
@@ -191,13 +197,8 @@ fn gaussian_shadow(dist: f32, blur_radius: f32) -> f32 {
         return select(0.0, 1.0, dist <= 0.0);
     }
     
-    // Normalize distance by blur radius
     let normalized_dist = abs(dist) / blur_radius;
-    
-    // Gaussian approximation
     let gaussian = exp(-normalized_dist * normalized_dist * 0.5);
-    
-    // Smooth falloff for distances beyond the blur radius
     let falloff = smoothstep(0.0, 1.0, 1.0 - normalized_dist);
 
     return gaussian * falloff;
@@ -214,13 +215,15 @@ fn is_outside_container(surface_pos: vec2<f32>, texture_bounds: vec4<f32>) -> bo
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    // Clip to container bounds
     if is_outside_container(in.surface_position, in.texture_bounds) {
         discard;
     }
 
+    // Sample texture (straight alpha)
     let base_color = textureSample(t_diffuse, s_diffuse, in.tex_coords, in.layer);
   
-    // === TEXTURE ROUNDED CORNERS HANDLING ===
+    // === ROUNDED CORNERS ===
     let centered_tex_coords = in.tex_coords - 0.5;
     let half_extent = vec2<f32>(0.5, 0.5);
     let texture_radius = in.radius * 0.01;
@@ -230,22 +233,34 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let texture_aa = fwidth(texture_dist) * 0.6;
     let texture_alpha = smoothstep(-texture_aa, texture_aa, -texture_dist);
 
-    // === SHADOW HANDLING ===
+    // === SHADOW ===
     let shadow_offset_normalized = in.shadow_offset / in.size;
     let shadow_coords = centered_tex_coords - shadow_offset_normalized;
     let shadow_dist = sdf_rounded_rect(shadow_coords, half_extent + (in.shadow_offset / in.size) / 2., effective_radius);
     let shadow_alpha = gaussian_shadow(shadow_dist, in.shadow_softness / min(in.size.x, in.size.y));
 
-    // === FINAL COLOR COMPOSITION ===
-    var main_color = vec4<f32>(base_color.rgb, base_color.a * texture_alpha * in.opacity);
-    main_color = brightness_matrix(in.brightness) * contrast_matrix(in.contrast) * saturation_matrix(in.saturation) * main_color;
+    // === COLOR FILTERS ===
+    var final_rgb = base_color.rgb;
+    
+    // Check if we need to apply color filters
+    let needs_filters = in.brightness != 0.0 || in.contrast != 1.0 || in.saturation != 1.0 || 
+                       in.hue_rotate != 0.0 || in.sepia != 0.0 || in.grayscale != 0.0 || in.invert != 0.0;
+    
+    if needs_filters {
+        // Apply color matrix filters
+        var filtered_color = vec4<f32>(final_rgb, 1.0);
+        filtered_color = brightness_matrix(in.brightness) * contrast_matrix(in.contrast) * saturation_matrix(in.saturation) * filtered_color;
+        
+        // Apply other color transforms  
+        let hue_rotated = hue_rotate(filtered_color.rgb, in.hue_rotate);
+        let sepia_applied = sepia(hue_rotated, in.sepia);
+        let gray_applied = grayscale(sepia_applied, in.grayscale);
+        final_rgb = mix(gray_applied, vec3<f32>(1.0) - gray_applied, in.invert);
+    }
 
-    let hue_rotated = hue_rotate(main_color.rgb, in.hue_rotate);
-    let sepia_applied = sepia(hue_rotated, in.sepia);
-    let gray_applied = grayscale(sepia_applied, in.grayscale);
-    let final_main_color = vec4<f32>(mix(gray_applied, vec3<f32>(1.0) - gray_applied, in.invert), main_color.a);
-
-    let shadow_contribution = vec4<f32>(0.0, 0.0, 0.0, shadow_alpha) * (1.0 - final_main_color.a);
-    let final_color = final_main_color + shadow_contribution;
-    return final_color;
+    // Apply opacity and rounded corners to alpha
+    let final_alpha = base_color.a * texture_alpha * in.opacity;
+    
+    // Premultiply and return (shadow disabled for now to maintain transparency)
+    return vec4<f32>(final_rgb * final_alpha, final_alpha);
 }

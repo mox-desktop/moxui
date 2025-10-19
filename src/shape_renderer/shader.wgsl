@@ -40,13 +40,10 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
 
-    // Compute pixel position in screen space
     let pixel_pos = model.position * (instance.rect_size + vec2<f32>(instance.border_size[0], instance.border_size[2]) + vec2<f32>(instance.border_size[1], instance.border_size[3])) * instance.scale + instance.rect_pos * instance.scale;
 
-    // Convert from pixel coordinates to NDC (-1..1)
     let resolution = vec2<f32>(params.screen_resolution);
     let ndc = (pixel_pos / resolution) * 2.0 - vec2<f32>(1.0, 1.0);
-    // Flip Y because WebGPU coordinate system is top-left origin, NDC is bottom-left
     let ndc_fixed = vec2<f32>(ndc.x, -ndc.y);
 
     out.clip_position = vec4<f32>(ndc_fixed, instance.depth, 1.0);
