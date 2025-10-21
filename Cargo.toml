@@ -16,6 +16,10 @@ wgpu = { version = "27.0.1", default-features = false, features = [
 pollster = "0.4.0"
 winit = "0.30.5"
 
+[[example]]
+name = "fractional_scaling"
+required-features = ["texture_renderer"]
+
 [features]
 default = ["texture_renderer", "shape_renderer"]
 texture_renderer = []

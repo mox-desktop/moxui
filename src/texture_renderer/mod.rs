@@ -5,10 +5,9 @@ use crate::buffers::{self, DataDescription, GpuBuffer};
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct TextureInstance {
-    // Pack filters into vec4s to save attribute locations
-    pub filters1: [f32; 4],  // [opacity, brightness, contrast, saturation]
-    pub filters2: [f32; 4],  // [hue_rotate, sepia, invert, grayscale]
-    pub rotation_depth: [f32; 2],  // [rotation, depth]
+    pub filters1: [f32; 4],       // [opacity, brightness, contrast, saturation]
+    pub filters2: [f32; 4],       // [hue_rotate, sepia, invert, grayscale]
+    pub rotation_depth: [f32; 2], // [rotation, depth]
     pub scale: [f32; 2],
     pub skew: [f32; 2],
     pub rect: [f32; 4],
@@ -21,15 +20,15 @@ impl DataDescription for TextureInstance {
     const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Instance;
 
     const ATTRIBS: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
-        1 => Float32x4,  // filters1
-        2 => Float32x4,  // filters2
-        3 => Float32x2,  // rotation_depth
-        4 => Float32x2,  // scale
-        5 => Float32x2,  // skew
-        6 => Float32x4,  // rect
-        7 => Float32x4,  // radius
-        8 => Float32x4,  // texture_bounds
-        9 => Float32x3,  // shadow
+        1 => Float32x4,
+        2 => Float32x4,
+        3 => Float32x2,
+        4 => Float32x2,
+        5 => Float32x2,
+        6 => Float32x4,
+        7 => Float32x4,
+        8 => Float32x4,
+        9 => Float32x3,
     ];
 }
 
@@ -183,7 +182,6 @@ impl<'a> Buffer<'a> {
     }
 }
 
-
 pub struct TextureRenderer {
     blur: blur::BlurRenderer,
     render_pipeline: wgpu::RenderPipeline,
@@ -193,7 +191,6 @@ pub struct TextureRenderer {
     index_buffer: buffers::IndexBuffer,
     instance_buffer: buffers::instance::InstanceBuffer<TextureInstance>,
     height: f32,
-    max_icon_size: u32,
     max_texture_width: u32,
     max_texture_height: u32,
     prepared_instances: usize,
@@ -244,7 +241,7 @@ impl<'a> TextureArea<'a> {
     ) -> Self {
         let mut buffer = Buffer::new(width, height);
         buffer.set_bytes(data);
-        
+
         Self {
             left,
             top,
@@ -278,7 +275,15 @@ impl TextureRenderer {
         height: u32,
         max_textures: u32,
     ) -> Self {
-        Self::with_texture_dimensions(device, texture_format, max_icon_size, max_icon_size, width, height, max_textures)
+        Self::with_texture_dimensions(
+            device,
+            texture_format,
+            max_icon_size,
+            max_icon_size,
+            width,
+            height,
+            max_textures,
+        )
     }
 
     pub fn with_texture_dimensions(
@@ -331,10 +336,7 @@ impl TextureRenderer {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("texture_render_pipeline_layout"),
-                bind_group_layouts: &[
-                    &texture_bind_group_layout,
-                    &viewport_bind_group_layout,
-                ],
+                bind_group_layouts: &[&texture_bind_group_layout, &viewport_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -443,7 +445,6 @@ impl TextureRenderer {
 
         Self {
             prepared_instances: 0,
-            max_icon_size: texture_width.max(texture_height),
             max_texture_width: texture_width,
             max_texture_height: texture_height,
             instance_buffer,
@@ -457,10 +458,17 @@ impl TextureRenderer {
         }
     }
 
-    pub fn resize(&mut self, device: &wgpu::Device, texture_format: wgpu::TextureFormat, width: f32, height: f32) {
+    pub fn resize(
+        &mut self,
+        device: &wgpu::Device,
+        texture_format: wgpu::TextureFormat,
+        width: f32,
+        height: f32,
+    ) {
         self.height = height;
         // Resize blur textures to match new surface size
-        self.blur.resize(device, width as u32, height as u32, texture_format);
+        self.blur
+            .resize(device, width as u32, height as u32, texture_format);
     }
 
     pub fn prepare(
@@ -513,7 +521,7 @@ impl TextureRenderer {
             // Calculate actual texture dimensions and bytes_per_row
             let tex_width = (texture.buffer.width as u32).min(self.max_texture_width);
             let tex_height = (texture.buffer.height as u32).min(self.max_texture_height);
-            
+
             // bytes_per_row must be aligned to 256 bytes for wgpu
             let unpadded_bytes_per_row = 4 * tex_width;
             let bytes_per_row = unpadded_bytes_per_row.div_ceil(256) * 256;
@@ -525,15 +533,18 @@ impl TextureRenderer {
                 for y in 0..tex_height {
                     let row_start = (y * unpadded_bytes_per_row) as usize;
                     let row_end = row_start + unpadded_bytes_per_row as usize;
-                    
+
                     // Copy the actual row data
                     if row_end <= texture.buffer.bytes.len() {
                         padded_data.extend_from_slice(&texture.buffer.bytes[row_start..row_end]);
                         // Add padding to reach bytes_per_row alignment
-                        padded_data.resize(padded_data.len() + (bytes_per_row - unpadded_bytes_per_row) as usize, 0);
+                        padded_data.resize(
+                            padded_data.len() + (bytes_per_row - unpadded_bytes_per_row) as usize,
+                            0,
+                        );
                     }
                 }
-                
+
                 queue.write_texture(
                     wgpu::TexelCopyTextureInfo {
                         texture: &self.texture,
@@ -585,8 +596,7 @@ impl TextureRenderer {
             }
         });
 
-        let instance_buffer_size =
-            std::mem::size_of::<TextureInstance>() * instances.len();
+        let instance_buffer_size = std::mem::size_of::<TextureInstance>() * instances.len();
 
         if self.instance_buffer.size() < instance_buffer_size as u32 {
             self.instance_buffer =
@@ -594,7 +604,7 @@ impl TextureRenderer {
         }
 
         self.instance_buffer.write(queue, &instances);
-        
+
         self.blur.prepare(device, queue, textures);
     }
 
@@ -646,7 +656,11 @@ impl TextureRenderer {
     }
 }
 
-pub fn create_depth_buffer(device: &wgpu::Device, width: u32, height: u32) -> (wgpu::Texture, wgpu::TextureView) {
+pub fn create_depth_buffer(
+    device: &wgpu::Device,
+    width: u32,
+    height: u32,
+) -> (wgpu::Texture, wgpu::TextureView) {
     let size = wgpu::Extent3d {
         width,
         height,
@@ -664,6 +678,6 @@ pub fn create_depth_buffer(device: &wgpu::Device, width: u32, height: u32) -> (w
     };
     let texture = device.create_texture(&desc);
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-    
+
     (texture, view)
 }

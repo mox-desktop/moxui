@@ -1,14 +1,49 @@
+/// Viewport resolution.
+///
+/// Represents the physical dimensions of the viewport in pixels.
+///
+/// # Example
+///
+/// ```ignore
+/// use moxui::viewport::Resolution;
+///
+/// let size = window.inner_size();
+/// let resolution = Resolution {
+///     width: size.width,
+///     height: size.height,
+/// };
+/// ```
 #[derive(PartialEq, Eq, Clone)]
 pub struct Resolution {
+    /// Width in pixels
     pub width: u32,
+    /// Height in pixels
     pub height: u32,
 }
 
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct Params {
-    resolution: Resolution,
+    resolution: [u32; 2],
     _pad: [u32; 2],
 }
 
+/// Viewport manager.
+///
+/// The viewport manages the screen resolution and provides it to shaders
+/// for coordinate transformation.
+///
+/// # Example
+///
+/// ```ignore
+/// use moxui::viewport::{Viewport, Resolution};
+///
+/// let mut viewport = Viewport::new(&device);
+/// viewport.update(&queue, Resolution {
+///     width: 1920,
+///     height: 1080,
+/// });
+/// ```
 pub struct Viewport {
     params: Params,
     buffer: wgpu::Buffer,
@@ -16,12 +51,13 @@ pub struct Viewport {
 }
 
 impl Viewport {
+    /// Creates a new viewport with default settings.
+    ///
+    /// The viewport is initialized with zero dimensions.
+    /// Call [`update`](Self::update) to set the actual resolution.
     pub fn new(device: &wgpu::Device) -> Self {
         let params = Params {
-            resolution: Resolution {
-                width: 0,
-                height: 0,
-            },
+            resolution: [0, 0],
             _pad: [0, 0],
         };
 
@@ -63,19 +99,29 @@ impl Viewport {
         }
     }
 
+    /// Updates the viewport resolution.
+    ///
+    /// Call this method whenever the window is resized.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// WindowEvent::Resized(PhysicalSize { width, height }) => {
+    ///     viewport.update(&queue, Resolution { width, height });
+    /// }
+    /// ```
     pub fn update(&mut self, queue: &wgpu::Queue, resolution: Resolution) {
-        if self.params.resolution != resolution {
-            self.params.resolution = resolution;
-            queue.write_buffer(&self.buffer, 0, unsafe {
-                std::slice::from_raw_parts(
-                    &self.params as *const Params as *const u8,
-                    std::mem::size_of::<Params>(),
-                )
-            });
+        if self.params.resolution != [resolution.width, resolution.height] {
+            self.params.resolution = [resolution.width, resolution.height];
+            queue.write_buffer(&self.buffer, 0, bytemuck::cast_slice(&[self.params]));
         }
     }
 
-    pub fn resolution(&self) -> &Resolution {
-        &self.params.resolution
+    /// Returns the current viewport resolution.
+    pub fn resolution(&self) -> Resolution {
+        Resolution {
+            width: self.params.resolution[0],
+            height: self.params.resolution[1],
+        }
     }
 }
