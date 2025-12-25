@@ -60,7 +60,7 @@ impl ShapeRenderer {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
                 bind_group_layouts: &[&uniform_bind_group_layout],
-                push_constant_ranges: &[],
+                immediate_size: 0,
             });
 
         let shader = device.create_shader_module(wgpu::include_wgsl!("./shader.wgsl"));
@@ -90,7 +90,7 @@ impl ShapeRenderer {
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,

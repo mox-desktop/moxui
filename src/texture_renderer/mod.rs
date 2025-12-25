@@ -337,7 +337,7 @@ impl TextureRenderer {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("texture_render_pipeline_layout"),
                 bind_group_layouts: &[&texture_bind_group_layout, &viewport_bind_group_layout],
-                push_constant_ranges: &[],
+                immediate_size: 0,
             });
 
         let shader = device.create_shader_module(wgpu::include_wgsl!("./shader.wgsl"));
@@ -367,8 +367,8 @@ impl TextureRenderer {
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
             cache: None,
+            multiview_mask: None,
         });
 
         let texture_size = wgpu::Extent3d {
@@ -402,7 +402,7 @@ impl TextureRenderer {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Nearest,
             min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             ..Default::default()
         });
 
