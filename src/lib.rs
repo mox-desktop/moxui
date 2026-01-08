@@ -9,3 +9,6 @@ pub use renderers::texture_renderer;
 
 pub mod buffers;
 pub mod viewport;
+
+#[cfg(feature = "texture_renderer")]
+pub mod image;

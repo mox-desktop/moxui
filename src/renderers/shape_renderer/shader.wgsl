@@ -115,6 +115,10 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
     let outer_alpha = smoothstep(-outer_aa, outer_aa, -outer_dist);
     let border_alpha = outer_alpha - inner_alpha;
 
+    if outer_alpha < 0.001 {
+        discard;
+    }
+
     let inner_rgb = srgb_to_linear(in.rect_color.rgb);
     let inner_color = vec4<f32>(inner_rgb * in.rect_color.a, in.rect_color.a) * inner_alpha;
 

@@ -15,6 +15,7 @@ struct InstanceInput {
     @location(2) blur_sigma: u32,
     @location(3) blur_color: vec4<f32>,
     @location(4) rect: vec4<f32>,
+    @location(5) scale: vec2<f32>,
 };
 
 struct VertexOutput {
@@ -33,9 +34,20 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
 
-    out.clip_position = vec4<f32>(model.position * 2.0 - 1.0, 0.0, 1.0);
-    out.tex_coords = model.position;
-    out.screen_size = vec2<f32>(params.screen_resolution);
+    let rect = instance.rect;
+    let screen_res = vec2<f32>(params.screen_resolution);
+
+    let pos = vec2<f32>(rect.x, rect.y) * instance.scale;
+    let size = vec2<f32>(rect.z, rect.w) * instance.scale;
+    let local_pos = (model.position - vec2<f32>(0.5)) * size;
+    let position = local_pos + pos + size * 0.5;
+
+    let ndc = (position / screen_res) * 2.0 - vec2<f32>(1.0, 1.0);
+    let ndc_fixed = vec2<f32>(ndc.x, -ndc.y);
+
+    out.clip_position = vec4<f32>(ndc_fixed, 0.0, 1.0);
+    out.tex_coords = position / screen_res;
+    out.screen_size = screen_res;
     out.blur_sigma = instance.blur_sigma;
     out.blur_color = instance.blur_color;
 
@@ -79,7 +91,7 @@ fn fs_horizontal_blur(in: VertexOutput) -> @location(0) vec4<f32> {
         let weight = weights[i];
         let tex_offset = vec2<f32>(offset / in.screen_size.x, 0.0);
         let sample_coord = tex_coords + tex_offset;
-        color += textureSample(t_diffuse, s_diffuse, sample_coord) * weight;
+        color   += textureSample(t_diffuse, s_diffuse, sample_coord) * weight;
     }
 
     return color;
@@ -101,7 +113,7 @@ fn fs_vertical_blur(in: VertexOutput) -> @location(0) vec4<f32> {
         let weight = weights[i];
         let tex_offset = vec2<f32>(0.0, offset / in.screen_size.y);
         let sample_coord = tex_coords + tex_offset;
-        color += textureSample(t_diffuse, s_diffuse, sample_coord) * weight;
+        color   += textureSample(t_diffuse, s_diffuse, sample_coord) * weight;
     }
 
     return color;

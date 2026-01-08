@@ -479,6 +479,7 @@ impl TextureRenderer {
         self.prepared_instances = textures.len();
 
         if textures.is_empty() {
+            self.blur.prepare(device, queue, textures);
             return;
         }
 
@@ -613,37 +614,35 @@ impl TextureRenderer {
         encoder: &mut wgpu::CommandEncoder,
         viewport: &crate::viewport::Viewport,
     ) {
-        if self.prepared_instances == 0 {
-            return;
+        if self.prepared_instances > 0 {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("standard_render_pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.blur.intermediate_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                ..Default::default()
+            });
+
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_bind_group(0, &self.bind_group, &[]);
+            render_pass.set_bind_group(1, &viewport.bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(
+                0..self.index_buffer.size(),
+                0,
+                0..self.prepared_instances as u32,
+            );
+
+            drop(render_pass);
         }
-
-        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("standard_render_pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &self.blur.intermediate_view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                    store: wgpu::StoreOp::Store,
-                },
-                depth_slice: None,
-            })],
-            ..Default::default()
-        });
-
-        render_pass.set_pipeline(&self.render_pipeline);
-        render_pass.set_bind_group(0, &self.bind_group, &[]);
-        render_pass.set_bind_group(1, &viewport.bind_group, &[]);
-        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        render_pass.draw_indexed(
-            0..self.index_buffer.size(),
-            0,
-            0..self.prepared_instances as u32,
-        );
-
-        drop(render_pass);
 
         self.blur.render(
             texture_view,

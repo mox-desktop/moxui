@@ -6,12 +6,13 @@ pub struct BlurInstance {
     pub blur_sigma: u32,
     pub blur_color: [f32; 4],
     pub rect: [f32; 4],
+    pub scale: [f32; 2],
 }
 
 impl DataDescription for BlurInstance {
     const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Instance;
     const ATTRIBS: &'static [wgpu::VertexAttribute] =
-        &wgpu::vertex_attr_array![2 => Uint32, 3 => Float32x4, 4 => Float32x4];
+        &wgpu::vertex_attr_array![2 => Uint32, 3 => Float32x4, 4 => Float32x4, 5 => Float32x2];
 }
 
 impl buffers::instance::Instance for BlurInstance {}
@@ -367,6 +368,7 @@ impl BlurRenderer {
                     blur_sigma: texture.buffer.filters.blur,
                     blur_color: texture.buffer.filters.blur_color,
                     rect: [texture.left, texture.top, width, height],
+                    scale: texture.buffer.scale,
                 }
             })
             .collect::<Vec<_>>();
@@ -377,6 +379,7 @@ impl BlurRenderer {
                 blur_sigma: 0,
                 blur_color: [0.0, 0.0, 0.0, 0.0],
                 rect: [0.0, 0.0, 0.0, 0.0],
+                scale: [1.0, 1.0],
             }]
         } else {
             instances
@@ -422,8 +425,7 @@ impl BlurRenderer {
         horizontal_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
         horizontal_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
         horizontal_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        // Blur is a fullscreen effect, only draw once regardless of number of textures
-        horizontal_pass.draw_indexed(0..index_buffer.size(), 0, 0..1);
+        horizontal_pass.draw_indexed(0..index_buffer.size(), 0, 0..self.instance_buffer.size());
         drop(horizontal_pass);
 
         let mut vertical_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -445,8 +447,7 @@ impl BlurRenderer {
         vertical_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
         vertical_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
         vertical_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        // Blur is a fullscreen effect, only draw once regardless of number of textures
-        vertical_pass.draw_indexed(0..index_buffer.size(), 0, 0..1);
+        vertical_pass.draw_indexed(0..index_buffer.size(), 0, 0..self.instance_buffer.size());
     }
 }
 
