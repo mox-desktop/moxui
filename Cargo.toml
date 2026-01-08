@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+anyhow = "1.0.100"
 bytemuck = "1.24.0"
+glyphon = "0.10.0"
 wgpu = { version = "28.0.0", default-features = false, features = [
   "wgsl",
   "vulkan",
@@ -12,15 +14,15 @@ wgpu = { version = "28.0.0", default-features = false, features = [
   "strict_asserts",
 ] }
 
-[dev-dependencies]
-pollster = "0.4.0"
-winit = "0.30.5"
-
-[[example]]
-name = "fractional_scaling"
-required-features = ["texture_renderer"]
-
 [features]
-default = ["texture_renderer", "shape_renderer"]
+default = ["renderers"]
+
+renderers = [
+  "texture_renderer",
+  "shape_renderer",
+  "text_renderer",
+]
+
 texture_renderer = []
 shape_renderer = []
+text_renderer = []
