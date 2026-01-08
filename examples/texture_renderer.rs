@@ -13,7 +13,6 @@ use winit::{
     window::{Window, WindowId},
 };
 
-#[test]
 fn main() -> Result<(), EventLoopError> {
     let event_loop = EventLoop::builder()
         .with_wayland()
@@ -34,7 +33,8 @@ pub struct App<'window> {
 impl<'window> ApplicationHandler for App<'window> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_none() {
-            let win_attr = Window::default_attributes().with_title("wgpu winit example");
+            let win_attr =
+                Window::default_attributes().with_title("moxui texture renderer example");
             let window = Arc::new(
                 event_loop
                     .create_window(win_attr)
@@ -44,6 +44,8 @@ impl<'window> ApplicationHandler for App<'window> {
             let wgpu_ctx = WgpuCtx::new(window.clone());
 
             self.wgpu_ctx = Some(wgpu_ctx);
+
+            window.request_redraw();
         }
     }
 
@@ -82,8 +84,26 @@ impl<'window> ApplicationHandler for App<'window> {
                 let Some(ref mut wgpu_ctx) = self.wgpu_ctx else {
                     return;
                 };
-                
-                wgpu_ctx.viewport.update(&wgpu_ctx.queue, Resolution { width, height });
+
+                wgpu_ctx.surface_config.width = width.max(1);
+                wgpu_ctx.surface_config.height = height.max(1);
+                wgpu_ctx
+                    .surface
+                    .configure(&wgpu_ctx.device, &wgpu_ctx.surface_config);
+
+                wgpu_ctx
+                    .viewport
+                    .update(&wgpu_ctx.queue, Resolution { width, height });
+
+                if let Some(ref mut texture_renderer) = wgpu_ctx.texture_renderer {
+                    texture_renderer.resize(
+                        &wgpu_ctx.device,
+                        wgpu_ctx.surface_config.format,
+                        width as f32,
+                        height as f32,
+                    );
+                }
+
                 wgpu_ctx.draw();
             }
             _ => (),
@@ -93,13 +113,13 @@ impl<'window> ApplicationHandler for App<'window> {
 
 #[allow(dead_code)]
 pub struct WgpuCtx<'window> {
-    index: usize,
     surface: wgpu::Surface<'window>,
     surface_config: wgpu::SurfaceConfiguration,
     adapter: wgpu::Adapter,
     device: wgpu::Device,
     queue: wgpu::Queue,
     viewport: Viewport,
+    texture_renderer: Option<TextureRenderer>,
 }
 
 impl<'window> WgpuCtx<'window> {
@@ -125,13 +145,13 @@ impl<'window> WgpuCtx<'window> {
         viewport.update(&queue, Resolution { width, height });
 
         WgpuCtx {
-            index: 0,
             surface,
             surface_config,
             adapter,
             viewport,
             device,
             queue,
+            texture_renderer: None,
         }
     }
 
@@ -147,20 +167,37 @@ impl<'window> WgpuCtx<'window> {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-        let width = 120;
-        let height = 120;
+        let width = 400;
+        let height = 300;
         let mut bytes = vec![0u8; width * height * 4];
 
-        for i in 0..(width * height) {
-            bytes[i * 4 + 3] = 255;
+        for y in 0..height {
+            for x in 0..width {
+                let i = (y * width + x) * 4;
+                let checker = ((x / 40) + (y / 40)) % 2;
+                if checker == 0 {
+                    bytes[i] = 255;
+                    bytes[i + 1] = 0;
+                    bytes[i + 2] = 0;
+                    bytes[i + 3] = 255;
+                } else {
+                    bytes[i] = 0;
+                    bytes[i + 1] = 0;
+                    bytes[i + 2] = 255;
+                    bytes[i + 3] = 255;
+                }
+            }
         }
 
         let mut buffer = Buffer::new(width as f32, height as f32);
         buffer.set_bytes(&bytes);
 
+        let left = 0.0;
+        let top = 0.0;
+
         let texture = TextureArea {
-            left: 0.,
-            top: 0.,
+            left,
+            top,
             scale: 1.0,
             bounds: TextureBounds {
                 left: 0,
@@ -175,15 +212,23 @@ impl<'window> WgpuCtx<'window> {
             depth: 0.,
         };
 
-        let mut texture_renderer = TextureRenderer::new(
-            &self.device,
-            self.surface_config.format,
-            width as u32,
-            self.surface_config.width,
-            self.surface_config.height,
-        );
-        texture_renderer.prepare(&self.device, &self.queue, &[texture]);
-        texture_renderer.render(&texture_view, &mut encoder, &self.viewport);
+        let max_icon_size = width.max(height) as u32;
+        if self.texture_renderer.is_none() {
+            let mut texture_renderer = TextureRenderer::new(
+                &self.device,
+                self.surface_config.format,
+                max_icon_size,
+                self.surface_config.width,
+                self.surface_config.height,
+            );
+            texture_renderer.prepare(&self.device, &self.queue, &[texture]);
+            texture_renderer.render(&texture_view, &mut encoder, &self.viewport);
+            self.texture_renderer = Some(texture_renderer);
+        } else {
+            let texture_renderer = self.texture_renderer.as_mut().unwrap();
+            texture_renderer.prepare(&self.device, &self.queue, &[texture]);
+            texture_renderer.render(&texture_view, &mut encoder, &self.viewport);
+        }
 
         self.queue.submit(Some(encoder.finish()));
         surface_texture.present();

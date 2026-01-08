@@ -466,7 +466,6 @@ impl TextureRenderer {
         height: f32,
     ) {
         self.height = height;
-        // Resize blur textures to match new surface size
         self.blur
             .resize(device, width as u32, height as u32, texture_format);
     }
